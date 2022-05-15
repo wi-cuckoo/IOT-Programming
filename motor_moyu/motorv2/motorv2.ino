@@ -1,46 +1,57 @@
-#include <SoftwareSerial.h> 
+#include <ESP8266WiFi.h>
 
-/****************************** ESP8266串口及状态定义 start ******************************/
-#define BRUDRATE 9600
-#define ESP8266_RX 2
-#define ESP8266_TX 3
-/****************************** ESP8266串口及状态定义 end ******************************/
+#ifndef STASSID
+#define STASSID "HUAWEI-J6WHTX"
+#define STAPSK  "wuchang@888"
+#endif
+
+const char* ssid     = STASSID;
+const char* password = STAPSK;
+
+const char* host = "110.40.236.234";
+const uint16_t port = 9999;
 
 /****************************** 电机驱动引脚及状态定义 start ******************************/
-// 左边L298N输入引脚定义
-int L_IN1 = 4;
-int L_IN2 = 5;
-int L_IN3 = 6;
-int L_IN4 = 7;
-// 右边L298N输入引脚定义
-int R_IN1 = 8;
-int R_IN2 = 9;
-int R_IN3 = 10;
-int R_IN4 = 11;
-
-#define IN_SIZE 8
+#define IN_SIZE 4
+#define FW_STATE 0b0110
+// L298N输入引脚定义
+int IN1 = 0;
+int IN2 = 1;
+int IN3 = 2;
+int IN4 = 3;
+int IN_LIST[IN_SIZE] = {IN1, IN2, IN3, IN4};
 /****************************** 电机驱动引脚及状态定义 ed ******************************/
 
-int IN_LIST[IN_SIZE] = {L_IN1, L_IN2, L_IN3, L_IN4, R_IN1, R_IN2, R_IN3, R_IN4 };
-char FW_STATE = 0b10011010;
-SoftwareSerial esp8266(2,3); 
-
 void setup() {
-  pinMode(LED_BUILTIN, OUTPUT);
   for (int i = 0; i < IN_SIZE; i++) {
     pinMode(IN_LIST[i], OUTPUT);
   }
-  
-  Serial.begin(BRUDRATE);
-}
 
-void loop() {
-  while(Serial.available()){
-    char c = Serial.read();
-    run_motor(c);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
   }
 }
 
+
+void loop() {
+  // Use WiFiClient class to create TCP connections
+  WiFiClient client;
+  if (!client.connect(host, port)) {
+    delay(5000);
+    return;
+  }
+
+  // This will send a string to the server
+  client.print("ojbk");
+  while(client.connected()){
+    while (client.available()) {
+      char ch = static_cast<char>(client.read());
+      run_motor(ch);
+    }
+  }
+}
 
 /****************************** 小车运动函数定义 start ******************************/
 void run_motor(char c) {
