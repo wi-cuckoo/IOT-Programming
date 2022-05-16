@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+        <script src="https://unpkg.com/vue@next"></script>
+        <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+        <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css" integrity="sha384-HSMxcRTRxnN+Bdg0JdbxYKrThecOKuH5zCYotlSAcp1+c8xmyTe9GYg1l9a69psu" crossorigin="anonymous">
+        <style type="text/css">
+            .player {
+                margin: 10px 5px;
+                position: relative;
+            }
+            .player img {
+                height: 240px;
+                width: 320px;
+                margin: 0 auto;
+            }
+            .player .close-status {
+                background-color: #666;
+                height: 240px;
+                width: 320px;
+                margin: 0 auto;
+                position: relative;
+            }
+            .player .operator {
+                position: absolute;
+                top: 0;
+                height: 240px;
+                width: 100%;
+                text-align: center;
+            }
+            .play-btn {
+                font-size: 40px;
+                box-shadow: #333;
+                margin-top: 100px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container-fluid" id="app">
+            <div class="player" @click="change_stream()">
+                <img v-if="opened" :src="stream_url"/>
+                <div class="close-status" v-else>
+                    <div class="operator">
+                        <span class="glyphicon glyphicon-play-circle play-btn" aria-hidden="true"></span>
+                    </div>
+                </div>
+            </div>
+            <div style="margin: 10% auto; text-align: center;">
+                <div>
+                    <button type="button" class="btn btn-default bt-lg" @click="run('F')">
+                        <span class="glyphicon glyphicon-chevron-up" aria-hidden="true"></span>
+                    </button>
+                </div>
+                <div>
+                    <button type="button" class="btn btn-default bt-lg" @click="run('L')">
+                        <span class="glyphicon glyphicon-chevron-left" aria-hidden="true"></span>
+                    </button>                
+                    <button type="button" class="btn btn-default bt-lg" @click="run('S')" style="margin: 5px;">
+                        <span class="glyphicon glyphicon-pause" aria-hidden="true"></span>
+                    </button>
+                    <button type="button" class="btn btn-default bt-lg" @click="run('R')">
+                        <span class="glyphicon glyphicon-chevron-right" aria-hidden="true"></span>
+                    </button>
+                </div>
+                <div>
+                    <button type="button" class="btn btn-default bt-lg" @click="run('B')">
+                        <span class="glyphicon glyphicon-chevron-down" aria-hidden="true"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <script>
+            const Motor = {
+                data () {
+                    return {
+                        logs: ['connected to server successfully'],
+                        step: 1,
+                        opened: false,
+                    }
+                },
+                computed: {
+                    stream_url() {
+                        if (this.opened) {
+                            return `${location.protocol}//${location.host}/stream`
+                        }
+                        return ""
+                    }
+                },
+                methods: {
+                    run(cmd) {
+                        this.logs.push(`publish a command [${cmd}]\t${parseInt(Date.now()/1000)}`)
+                        if (this.logs.length > 4) {
+                            this.logs.shift()
+                        }
+                        let maxStep = 10
+                        if (maxStep < this.step ) {
+                            this.step = maxStep
+                        }
+                        let cmds = Array.from({length: this.step}, () => cmd)
+                        axios.put(`/pub/motor/${cmds.join('')}`)
+                    },
+                    change_stream() {
+                        let cmd = this.opened? 'off': 'on'
+                        axios.put(`/pub/cam/${cmd}`).then(res => {
+                            if (this.opened) {
+                                window.stop()
+                            }
+                            this.opened = !this.opened
+                        })
+                    }
+                }
+            }
+            Vue.createApp(Motor).mount('#app')
+        </script>
+    </body>
+</html>
