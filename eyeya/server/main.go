@@ -4,11 +4,14 @@ import (
 	"bytes"
 	_ "embed"
 	"encoding/binary"
+	"flag"
 	"fmt"
+	"image"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -24,16 +27,37 @@ const (
 //go:embed ace.html
 var homePage []byte
 
+var (
+	webAddr    string
+	brokerAddr string
+	debug      bool
+	help       bool
+)
+
+func init() {
+	flag.StringVar(&webAddr, "web-addr", ":4399", "serve web frontend")
+	flag.StringVar(&brokerAddr, "broker-addr", ":9999", "serve iot device")
+	flag.BoolVar(&debug, "debug", true, "debug mode")
+	flag.BoolVar(&help, "h", true, "print help info")
+}
+
 func main() {
-	e := NewEdged(":4399", ":9999")
+	flag.Parse()
+	if help {
+		flag.Usage()
+		return
+	}
+
+	e := NewEdged(webAddr, brokerAddr)
 	e.Serve()
 }
 
 type Edged struct {
-	ch       chan byte
-	streamOn bool
-	frameCh  chan *Frame
-	pub, sub net.Listener
+	ch        chan byte
+	streamOn  bool
+	frameCh   chan *Frame
+	pub, sub  net.Listener
+	framePool sync.Pool
 }
 
 func NewEdged(pubAddr, subAddr string) *Edged {
@@ -48,6 +72,11 @@ func NewEdged(pubAddr, subAddr string) *Edged {
 	e.ch = make(chan byte, 1)
 	e.streamOn = true
 	e.frameCh = make(chan *Frame, 128)
+	e.framePool = sync.Pool{
+		New: func() interface{} {
+			return &Frame{}
+		},
+	}
 	return e
 }
 
@@ -86,7 +115,8 @@ func (e *Edged) Serve() {
 			case f := <-e.frameCh:
 				c.Writer.Write([]byte(STREAM_BOUNDARY))
 				c.Writer.Write([]byte(STREAM_PART))
-				c.Writer.Write(f.Buf)
+				c.Writer.Write(f.Rotate90())
+				e.framePool.Put(f)
 			}
 		}
 	})
@@ -143,20 +173,15 @@ func (e *Edged) handleSubConn(conn net.Conn) {
 	quit := make(chan struct{})
 	go func() {
 		for {
-			n, err := readFrameLen(conn)
-			if err != nil {
-				log.Printf("readFrameLen fail: %s\n", err.Error())
-				break
-			}
-			log.Printf("readFrameLen got: %d\n", n)
-			frame, err := readFrame(conn, int(n))
-			if err != nil {
-				log.Printf("readFrame fail: %s\n", err.Error())
+			f := e.framePool.Get().(*Frame)
+			if err := f.ReadOne(conn); err != nil {
+				log.Printf("frame read one fail: %s\n", err.Error())
 				break
 			}
 			select {
-			case e.frameCh <- &Frame{Buf: frame, Len: n}:
+			case e.frameCh <- f:
 			default:
+				e.framePool.Put(f)
 			}
 
 		}
@@ -187,14 +212,30 @@ type Frame struct {
 	// int64 timestamp;   // Timestamp since boot of the first DMA buffer of the frame
 }
 
-func readFrameLen(r io.Reader) (uint32, error) {
-	buf := make([]byte, 4)
-	_, err := io.ReadFull(r, buf)
-	return binary.BigEndian.Uint32(buf), err
+// ReadOne read one frame data once
+func (f *Frame) ReadOne(r io.Reader) error {
+	bs := make([]byte, 4)
+	_, err := io.ReadFull(r, bs)
+	if err != nil {
+		return err
+	}
+	f.Len = binary.BigEndian.Uint32(bs)
+	f.Buf = make([]byte, f.Len)
+	_, err = io.ReadFull(r, f.Buf)
+	return err
 }
 
-func readFrame(r io.Reader, n int) ([]byte, error) {
-	buf := make([]byte, n)
-	_, err := io.ReadFull(r, buf)
-	return buf, err
+// Rotate the image with 90 degree
+func (f *Frame) Rotate90() []byte {
+	img, _, err := image.Decode(bytes.NewReader(f.Buf))
+	if err != nil {
+		return []byte{}
+	}
+	r90 := image.NewRGBA(image.Rect(0, 0, img.Bounds().Dy(), img.Bounds().Dx()))
+	for x := img.Bounds().Min.Y; x < img.Bounds().Max.Y; x++ {
+		for y := img.Bounds().Max.X; y >= img.Bounds().Min.X; y-- {
+			r90.Set(img.Bounds().Max.Y-x, y, img.At(y, x))
+		}
+	}
+	return r90.Pix
 }
