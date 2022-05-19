@@ -18,7 +18,7 @@ int IN_LIST[IN_SIZE] = {IN1, IN2, IN3, IN4};
 /****************************** wifi&server start ******************************/
 const char* ssid = "HUAWEI-B91W7Y";
 const char* password = "liangzhu@888";
-const char* host = "110.40.236.234";
+const char* host = "192.168.3.9"; // 110.40.236.234
 const uint16_t port = 9999;
 /****************************** wifi&server end ******************************/
 
@@ -71,12 +71,6 @@ void setup() {
   }
 
   sensor_t * s = esp_camera_sensor_get();
-  // initial sensors are flipped vertically and colors are a bit saturated
-  if (s->id.PID == OV3660_PID) {
-    s->set_vflip(s, 1); // flip it back
-    s->set_brightness(s, 1); // up the brightness just a bit
-    s->set_saturation(s, -2); // lower the saturation
-  }
   // drop down frame size for higher initial frame rate
   s->set_framesize(s, FRAMESIZE_QVGA);
   

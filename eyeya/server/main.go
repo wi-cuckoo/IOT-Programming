@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	_ "embed"
 	"encoding/binary"
 	"flag"
 	"fmt"
@@ -13,6 +12,9 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	_ "embed"
+	"image/jpeg"
 
 	"github.com/gin-gonic/gin"
 )
@@ -38,7 +40,7 @@ func init() {
 	flag.StringVar(&webAddr, "web-addr", ":4399", "serve web frontend")
 	flag.StringVar(&brokerAddr, "broker-addr", ":9999", "serve iot device")
 	flag.BoolVar(&debug, "debug", true, "debug mode")
-	flag.BoolVar(&help, "h", true, "print help info")
+	flag.BoolVar(&help, "h", false, "print help info")
 }
 
 func main() {
@@ -115,7 +117,7 @@ func (e *Edged) Serve() {
 			case f := <-e.frameCh:
 				c.Writer.Write([]byte(STREAM_BOUNDARY))
 				c.Writer.Write([]byte(STREAM_PART))
-				c.Writer.Write(f.Rotate90())
+				f.RotateWrite(c.Writer)
 				e.framePool.Put(f)
 			}
 		}
@@ -178,12 +180,12 @@ func (e *Edged) handleSubConn(conn net.Conn) {
 				log.Printf("frame read one fail: %s\n", err.Error())
 				break
 			}
+			log.Printf("frame read one: %d\n", f.Len)
 			select {
 			case e.frameCh <- f:
 			default:
 				e.framePool.Put(f)
 			}
-
 		}
 		quit <- struct{}{}
 	}()
@@ -226,10 +228,11 @@ func (f *Frame) ReadOne(r io.Reader) error {
 }
 
 // Rotate the image with 90 degree
-func (f *Frame) Rotate90() []byte {
-	img, _, err := image.Decode(bytes.NewReader(f.Buf))
+func (f *Frame) RotateWrite(w io.Writer) error {
+	img, err := jpeg.Decode(bytes.NewReader(f.Buf))
 	if err != nil {
-		return []byte{}
+		log.Println("image decode fail: ", err.Error())
+		return err
 	}
 	r90 := image.NewRGBA(image.Rect(0, 0, img.Bounds().Dy(), img.Bounds().Dx()))
 	for x := img.Bounds().Min.Y; x < img.Bounds().Max.Y; x++ {
@@ -237,5 +240,6 @@ func (f *Frame) Rotate90() []byte {
 			r90.Set(img.Bounds().Max.Y-x, y, img.At(y, x))
 		}
 	}
-	return r90.Pix
+
+	return jpeg.Encode(w, r90, nil)
 }
