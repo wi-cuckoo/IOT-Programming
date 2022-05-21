@@ -26,6 +26,7 @@ void setup() {
   for (int i = 0; i < IN_SIZE; i++) {
     pinMode(IN_LIST[i], OUTPUT);
   }
+  _stop(); // 初始为停止运动，防止重启时失控
 
   Serial.begin(115200);
   Serial.println("begin to initialize camera...");

@@ -71,7 +71,7 @@ func NewEdged(pubAddr, subAddr string) *Edged {
 	if e.sub, err = net.Listen("tcp", subAddr); err != nil {
 		panic(err)
 	}
-	e.ch = make(chan byte, 1)
+	e.ch = make(chan byte, 4)
 	e.streamOn = true
 	e.frameCh = make(chan *Frame, 128)
 	e.framePool = sync.Pool{
@@ -117,7 +117,7 @@ func (e *Edged) Serve() {
 			case f := <-e.frameCh:
 				c.Writer.Write([]byte(STREAM_BOUNDARY))
 				c.Writer.Write([]byte(STREAM_PART))
-				f.RotateWrite(c.Writer)
+				c.Writer.Write(f.Buf)
 				e.framePool.Put(f)
 			}
 		}
