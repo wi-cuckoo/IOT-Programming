@@ -119,6 +119,7 @@ func (e *Edged) Serve() {
 				c.Writer.Write([]byte(STREAM_PART))
 				c.Writer.Write(f.Buf)
 				e.framePool.Put(f)
+			default:
 			}
 		}
 	})
