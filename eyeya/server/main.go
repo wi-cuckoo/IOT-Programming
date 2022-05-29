@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"image"
+	"image/jpeg"
 	"io"
 	"log"
 	"net"
@@ -14,7 +15,6 @@ import (
 	"time"
 
 	_ "embed"
-	"image/jpeg"
 
 	"github.com/gin-gonic/gin"
 )
@@ -26,12 +26,19 @@ const (
 	STREAM_PART         = "Content-Type: image/jpeg\r\n\r\n"
 )
 
+const (
+	CamOnline  = "online"
+	CamOffline = "offline"
+)
+
 //go:embed ace.html
 var homePage []byte
 
 var (
 	webAddr    string
 	brokerAddr string
+	passwd     string
+	deviceID   string
 	debug      bool
 	help       bool
 )
@@ -39,6 +46,8 @@ var (
 func init() {
 	flag.StringVar(&webAddr, "web-addr", ":4399", "serve web frontend")
 	flag.StringVar(&brokerAddr, "broker-addr", ":9999", "serve iot device")
+	flag.StringVar(&passwd, "passwd", "moyu@123", "passwd to access the web ui")
+	flag.StringVar(&deviceID, "device-id", "ojbk", "camera device id to authencate")
 	flag.BoolVar(&debug, "debug", true, "debug mode")
 	flag.BoolVar(&help, "h", false, "print help info")
 }
@@ -50,28 +59,31 @@ func main() {
 		return
 	}
 
-	e := NewEdged(webAddr, brokerAddr)
-	e.Serve()
+	e := NewEyeYa(brokerAddr, webAddr)
+	e.ServeToDie()
 }
 
-type Edged struct {
-	ch        chan byte
-	streamOn  bool
-	frameCh   chan *Frame
-	pub, sub  net.Listener
-	framePool sync.Pool
+type EyeYa struct {
+	ch          chan byte
+	streamOn    bool
+	frameCh     chan *Frame
+	broker, web net.Listener
+	framePool   sync.Pool
+	status      string
 }
 
-func NewEdged(pubAddr, subAddr string) *Edged {
-	e := new(Edged)
+func NewEyeYa(brokerAddr, webAddr string) *EyeYa {
+	e := new(EyeYa)
 	var err error
-	if e.pub, err = net.Listen("tcp", pubAddr); err != nil {
+	if e.broker, err = net.Listen("tcp", brokerAddr); err != nil {
 		panic(err)
 	}
-	if e.sub, err = net.Listen("tcp", subAddr); err != nil {
+	if e.web, err = net.Listen("tcp", webAddr); err != nil {
 		panic(err)
 	}
+
 	e.ch = make(chan byte, 4)
+	e.status = CamOffline
 	e.streamOn = true
 	e.frameCh = make(chan *Frame, 128)
 	e.framePool = sync.Pool{
@@ -82,11 +94,40 @@ func NewEdged(pubAddr, subAddr string) *Edged {
 	return e
 }
 
-func (e *Edged) Serve() {
-	go e.serveSubStream()
+func (e *EyeYa) ServeToDie() {
+	go e.runBrokerServer()
 
+	e.runWebServer()
+}
+
+func (e *EyeYa) runWebServer() {
 	r := gin.Default()
-	r.PUT("/pub/cam/:op", func(c *gin.Context) {
+
+	r.GET("/", func(c *gin.Context) {
+		c.Data(http.StatusOK, "text/html", homePage)
+	})
+	r.POST("/login", func(c *gin.Context) {
+		pwd, ok := c.GetQuery("passwd")
+		if !ok || pwd != passwd {
+			c.Status(http.StatusUnauthorized)
+			return
+		}
+		c.SetCookie("uid", passwd, 3600, "/", "*", false, false)
+		c.Status(http.StatusOK)
+	})
+	r.GET("/device/status", func(c *gin.Context) {
+		c.JSON(http.StatusOK, map[string]string{"status": e.status})
+	})
+
+	auth := func(c *gin.Context) {
+		uid, _ := c.Cookie("uid")
+		if uid != passwd {
+			log.Println("no match passwd, unauthorized!")
+			c.AbortWithStatus(http.StatusUnauthorized)
+		}
+		c.Next()
+	}
+	r.PUT("/pub/cam/:op", auth, func(c *gin.Context) {
 		op := c.Param("op")
 		switch op {
 		case "on":
@@ -97,7 +138,7 @@ func (e *Edged) Serve() {
 			e.streamOn = false
 		}
 	})
-	r.PUT("/pub/motor/:cmd", func(c *gin.Context) {
+	r.PUT("/pub/motor/:cmd", auth, func(c *gin.Context) {
 		cmd := c.Param("cmd")
 		if len(cmd) < 1 {
 			c.String(http.StatusBadRequest, "no cmd")
@@ -108,7 +149,7 @@ func (e *Edged) Serve() {
 		}
 		c.String(http.StatusOK, "ojbk")
 	})
-	r.GET("/stream", func(c *gin.Context) {
+	r.GET("/sub/stream", auth, func(c *gin.Context) {
 		c.Header("Content-Type", STREAM_CONTENT_TYPE)
 		for e.streamOn {
 			select {
@@ -123,37 +164,36 @@ func (e *Edged) Serve() {
 			}
 		}
 	})
-	r.GET("/", func(c *gin.Context) {
-		c.Data(http.StatusOK, "text/html", homePage)
-	})
 
-	panic(r.RunListener(e.pub))
+	panic(r.RunListener(e.web))
 }
 
-func (e *Edged) serveSubStream() {
+func (e *EyeYa) runBrokerServer() {
 	for {
-		conn, err := e.sub.Accept()
+		conn, err := e.broker.Accept()
 		if err != nil {
-			log.Printf("[edged] accept conn fail: %s\n", err.Error())
+			log.Printf("[EyeYa] accept conn fail: %s\n", err.Error())
 			continue
 		}
-		go e.handleSubConn(conn)
+
+		go e.handleConn(conn)
 	}
 }
 
-func (e *Edged) pushCmd(c byte) {
+func (e *EyeYa) pushCmd(c byte) {
 	select {
 	case e.ch <- c:
 	default:
 	}
 }
 
-func (e *Edged) handleSubConn(conn net.Conn) {
+func (e *EyeYa) handleConn(conn net.Conn) {
 	connID := fmt.Sprintf("%s-%s", conn.RemoteAddr(), conn.LocalAddr())
 	log.Printf("accept connection %s\n", connID)
 	defer func() {
 		log.Printf("close connection %s\n", connID)
 		conn.Close()
+		e.status = CamOffline
 	}()
 
 	if c, ok := conn.(*net.TCPConn); ok {
@@ -163,15 +203,17 @@ func (e *Edged) handleSubConn(conn net.Conn) {
 	}
 
 	// connect authorization
-	passwd := make([]byte, 4)
-	if _, err := conn.Read(passwd); err != nil {
+	devID := make([]byte, 4)
+	if _, err := conn.Read(devID); err != nil {
 		log.Printf("[%s]conn read err: %s", connID, err.Error())
 		return
 	}
-	if !bytes.Equal(passwd, []byte("ojbk")) {
-		log.Printf("[%s]conn authorize fail, bad passwd: %s", connID, string(passwd))
+	if !bytes.Equal(devID, []byte(deviceID)) {
+		log.Printf("[%s]conn authorize fail, bad deviceID: %s", connID, string(devID))
 		return
 	}
+
+	e.status = CamOnline
 
 	quit := make(chan struct{})
 	go func() {
@@ -198,14 +240,15 @@ func (e *Edged) handleSubConn(conn net.Conn) {
 		case <-quit:
 			return
 		}
-		log.Printf("[%s]write command: %c\n", connID, c)
 		if _, err := conn.Write([]byte{c}); err != nil {
 			log.Printf("[%s]got err: %s, close connection\n", connID, err.Error())
 			break
 		}
+		log.Printf("[%s]sent command: %c\n", connID, c)
 	}
 }
 
+// Frame video frame
 type Frame struct {
 	Len    uint32 // Length of the buffer in bytes
 	Width  uint32 // Width of the buffer in pixels

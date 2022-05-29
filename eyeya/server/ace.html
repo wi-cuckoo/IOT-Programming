@@ -8,7 +8,8 @@
         <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css" integrity="sha384-HSMxcRTRxnN+Bdg0JdbxYKrThecOKuH5zCYotlSAcp1+c8xmyTe9GYg1l9a69psu" crossorigin="anonymous">
         <style type="text/css">
             .player {
-                margin: 10px 5px;
+                margin: 10px auto;
+                width: 320px;
                 position: relative;
                 text-align: center;
             }
@@ -31,10 +32,25 @@
                 width: 100%;
                 text-align: center;
             }
+            .player .camera-status {
+                position: absolute;
+                top: 10px;
+                right: 10px;
+            }
+            .camera-status .online {
+                color: #168e0e;
+            }
             .play-btn {
                 font-size: 40px;
                 box-shadow: #333;
                 margin-top: 100px;
+            }
+            .motor-op {
+                margin: 10% auto;
+                text-align: center;
+            }
+            .motor-op button {
+                font-size: 36px;
             }
         </style>
     </head>
@@ -47,8 +63,11 @@
                         <span class="glyphicon glyphicon-play-circle play-btn" aria-hidden="true"></span>
                     </div>
                 </div>
+                <div class="camera-status">
+                    <span class="glyphicon glyphicon-camera" :class="{ online: online }" aria-hidden="true"></span>
+                </div>
             </div>
-            <div style="margin: 10% auto; text-align: center;">
+            <div class="motor-op">
                 <div>
                     <button type="button" class="btn btn-default bt-lg" @click="run('F')">
                         <span class="glyphicon glyphicon-chevron-up" aria-hidden="true"></span>
@@ -76,10 +95,32 @@
             const Motor = {
                 data () {
                     return {
-                        logs: ['connected to server successfully'],
                         step: 1,
                         opened: false,
+                        online: false,
+                        login: false
                     }
+                },
+                created() {
+                    let cookie = document.cookie
+                    console.log("got cookie:", cookie)
+                    if (cookie) {
+                        this.login = true
+                        return
+                    }
+                    let passwd=prompt("login as","")
+                    axios.post(`/login?passwd=${passwd}`).then(res => {
+                        location.href = "/"
+                    })
+                },
+                mounted() {
+                    window.setInterval(() => {
+                        axios.get('/device/status').then(res => {
+                            const {data} = res
+                            console.log(data.status)
+                            this.online = data.status == 'online'
+                        })
+                    }, 3000)
                 },
                 computed: {
                     stream_url() {
@@ -91,10 +132,6 @@
                 },
                 methods: {
                     run(cmd) {
-                        this.logs.push(`publish a command [${cmd}]\t${parseInt(Date.now()/1000)}`)
-                        if (this.logs.length > 4) {
-                            this.logs.shift()
-                        }
                         let maxStep = 10
                         if (maxStep < this.step ) {
                             this.step = maxStep
