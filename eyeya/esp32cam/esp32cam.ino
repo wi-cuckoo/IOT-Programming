@@ -1,7 +1,7 @@
-#include "esp_camera.h"
+#include <Servo.h>
 #include <WiFi.h>
 #include "camera_pins.h"
-
+#include "esp_camera.h"
 
 /****************************** 电机驱动引脚及状态定义 start ******************************/
 #define IN_SIZE 4
@@ -12,25 +12,33 @@ int IN2 = 13;
 int IN3 = 14;
 int IN4 = 15;
 int IN_LIST[IN_SIZE] = {IN1, IN2, IN3, IN4};
+// SG90信号引脚定义
+int SG1 = 1;
+int SG2 = 2;
+
+Servo SERVO1; // 控制底座左旋/右旋
+Servo SERVO2; // 控制抬头/低头
+int SG1_DEG = 90; // 初始都为 90 度
+int SG2_DEG = 90; // 初始都为 90 度
 /****************************** 电机驱动引脚及状态定义 end ******************************/
 
 
 /****************************** wifi&server start ******************************/
 const char* ssid = "HUAWEI-B91W7Y";
-const char* password = "liangzhu@888";
-const char* host = "192.168.3.9"; // 110.40.236.234
+const char* password = "*******";
+const char* host = "192.168.3.10";
 const uint16_t port = 9999;
 /****************************** wifi&server end ******************************/
 
 void setup() {
+  Serial.begin(115200);
+  
   for (int i = 0; i < IN_SIZE; i++) {
     pinMode(IN_LIST[i], OUTPUT);
   }
   _stop(); // 初始为停止运动，防止重启时失控
 
-  Serial.begin(115200);
-  Serial.println("begin to initialize camera...");
-  
+  Serial.println("begin to initialize camera...");  
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
@@ -85,6 +93,10 @@ void setup() {
   Serial.println("\nWiFi connected");
   Serial.print("got ip: ");
   Serial.println(WiFi.localIP());
+
+  SERVO2.attach(SG2);
+  init_pos();
+  head_down();
 }
 
 void loop() {
@@ -98,6 +110,8 @@ void loop() {
   // say ojbk!
   client.print("ojbk");
 
+  head_down();
+
   bool opened = false;
   while(client.connected()){
     if (opened) {
@@ -109,7 +123,7 @@ void loop() {
             continue;
       }
       Serial.printf("send one camera frame with len %d\r\n", fb->len);
-      // while(!client.availableForWrite());
+
       // write frame len
       client.write((fb->len >> 24)&0xff);
       client.write((fb->len >> 16)&0xff);
@@ -126,12 +140,21 @@ void loop() {
     if (client.available()) {
       char c = client.read();
       Serial.printf("got command: %c\n", c);
-      if (c == 'O') {
-        opened = true;
-      } else if (c == 'C') {
-        opened = false;
-      } else {
-        run_motor(c);
+      switch (c) {
+        case 'O':
+          opened = true;
+          break;
+        case 'C':
+          opened = false;
+          break;
+        case 'U':
+          head_up();
+          break;
+        case 'D':
+          head_down();
+          break;
+        default:
+          run_motor(c);  
       }
     }
   }
@@ -157,7 +180,7 @@ void run_motor(char c) {
       _stop();
       return;
   }
-  delay(100);
+  delay(180);
   _stop();
 }
 
@@ -204,3 +227,32 @@ void turn_right() {
 }
 
 /****************************** 小车运动函数定义 end ******************************/
+
+/****************************** 舵机云台函数定义 start ******************************/
+void init_pos() {
+  SERVO2.write(0);
+  delay(1500);
+}
+
+void head_up() {
+  SG2_DEG -= 30;
+  if (SG2_DEG < 0) {
+    SG2_DEG = 0;
+  }
+  Serial.printf("write servo2: %d\n", SG2_DEG);
+  
+  SERVO2.write(SG2_DEG);
+  delay(1500);
+}
+
+void head_down() {
+  SG2_DEG += 30;
+  if (SG2_DEG > 180) {
+    SG2_DEG = 180;
+  }
+  Serial.printf("write servo2: %d\n", SG2_DEG);
+  
+  SERVO2.write(SG2_DEG);
+  delay(1500);
+}
+/****************************** 舵机云台函数定义 end ******************************/
