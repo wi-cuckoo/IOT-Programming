@@ -45,9 +45,18 @@
                 box-shadow: #333;
                 margin-top: 100px;
             }
+            .player-control {
+                margin: 0 auto;
+                width: 320px;
+            }
+            .player-control button {
+                margin-left: 5px;
+            }
             .motor-op {
                 margin: 10% auto;
                 text-align: center;
+                border-top: 1px solid #ddd;
+                padding-top: 20px;
             }
             .motor-op button {
                 font-size: 36px;
@@ -67,6 +76,12 @@
                     <span class="glyphicon glyphicon-camera" :class="{ online: online }" aria-hidden="true"></span>
                 </div>
             </div>
+            <div class="player-control">
+                <button type="button" class="btn btn-default bt-lg" @click="run('U')">抬头</button>
+                <button type="button" class="btn btn-default bt-lg" @click="run('D')">低头</button>
+                <button type="button" class="btn btn-default bt-lg" @click="screenshot">截图</button>
+                <button type="button" class="btn btn-default bt-lg" @click="record_video">录制</button>
+            </div>
             <div class="motor-op">
                 <div>
                     <button type="button" class="btn btn-default bt-lg" @click="run('F')">
@@ -76,9 +91,9 @@
                 <div>
                     <button type="button" class="btn btn-default bt-lg" @click="run('L')">
                         <span class="glyphicon glyphicon-chevron-left" aria-hidden="true"></span>
-                    </button>                
-                    <button type="button" class="btn btn-default bt-lg" @click="run('S')" style="margin: 5px;">
-                        <span class="glyphicon glyphicon-pause" aria-hidden="true"></span>
+                    </button>
+                    <button type="button" class="btn btn-default bt-lg" style="margin: 5px;">
+                        <span class="glyphicon glyphicon-screenshot" aria-hidden="true"></span>
                     </button>
                     <button type="button" class="btn btn-default bt-lg" @click="run('R')">
                         <span class="glyphicon glyphicon-chevron-right" aria-hidden="true"></span>
@@ -147,7 +162,13 @@
                             }
                             this.opened = !this.opened
                         })
-                    }
+                    },
+                    screenshot() {
+                        console.log('coming soon')
+                    },
+                    recordvideo() {
+                        console.log('coming soon')
+                    },
                 }
             }
             Vue.createApp(Motor).mount('#app')
